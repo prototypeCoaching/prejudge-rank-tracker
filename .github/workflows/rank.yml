@@ -1,0 +1,43 @@
+# Where PREJUDGE stands in the App Store search, once a day at 06:40 Amsterdam.
+#
+# Two schedules because Amsterdam moves against UTC twice a year, and a guard so only the one that is 06:xx in
+# Amsterdam does the work. GitHub's schedules can be a quarter of an hour late; the dashboard allows for that.
+name: App Store rank
+
+on:
+  schedule:
+    - cron: '40 4 * * *'   # 06:40 Amsterdam, summer time
+    - cron: '40 5 * * *'   # 06:40 Amsterdam, winter time
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check the script still does what it says
+        run: npm test
+      - name: Is it the right hour in Amsterdam
+        id: when
+        run: |
+          hour=$(TZ=Europe/Amsterdam date +%H)
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$hour" = "06" ]; then
+            echo "run=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=no" >> "$GITHUB_OUTPUT"
+            echo "It is $hour:xx in Amsterdam, so the other schedule does the work today."
+          fi
+      - name: Ask Apple and post the readings
+        if: steps.when.outputs.run == 'yes'
+        env:
+          RANKINGS_URL: ${{ secrets.RANKINGS_URL }}
+          RANKINGS_TOKEN: ${{ secrets.RANKINGS_TOKEN }}
+          ASC_APP_ID: ${{ vars.ASC_APP_ID || '6814166907' }}
+        run: node rank.mjs
