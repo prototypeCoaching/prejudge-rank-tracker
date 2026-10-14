@@ -1,14 +1,29 @@
-# Where PREJUDGE stands in the App Store search, once a day at 06:40 Amsterdam.
+# Where PREJUDGE stands in the App Store search, once a day.
 #
-# Two schedules because Amsterdam moves against UTC twice a year, and a guard so only the one that is 06:xx in
-# Amsterdam does the work. GitHub's schedules can be a quarter of an hour late; the dashboard allows for that.
+# It used to be scheduled for 06:40 Amsterdam, with two cron lines for summer and winter time and a guard so that
+# only the one that was 06:xx in Amsterdam did the work. GitHub does not start a scheduled job when the cron says;
+# it starts it when it has a runner to spare. Through October 2026 that was five to seven and a half hours late,
+# every day, so the guard was never true and the rank went unread from 12 October.
+#
+# So: nothing depends on the clock any more. Several attempts through the day, and the first one that gets through
+# does the work. The others cost a few seconds, because the script asks the dashboard whether the day is already
+# written down before it asks Apple anything. A day only half read is finished off by the next attempt.
+
 name: App Store rank
 
 on:
   schedule:
-    - cron: '40 4 * * *'   # 06:40 Amsterdam, summer time
-    - cron: '40 5 * * *'   # 06:40 Amsterdam, winter time
+    - cron: '40 4 * * *'    # 06:40 Amsterdam in summer, 05:40 in winter
+    - cron: '40 8 * * *'
+    - cron: '40 12 * * *'
+    - cron: '40 16 * * *'
   workflow_dispatch:
+
+# Two attempts at once would both read Apple and both post. One at a time, and a late one is never cancelled: it
+# may be the only one that gets through today.
+concurrency:
+  group: app-store-rank
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -18,26 +33,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '22'
       - name: Check the script still does what it says
         run: npm test
-      - name: Is it the right hour in Amsterdam
-        id: when
-        run: |
-          hour=$(TZ=Europe/Amsterdam date +%H)
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$hour" = "06" ]; then
-            echo "run=yes" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=no" >> "$GITHUB_OUTPUT"
-            echo "It is $hour:xx in Amsterdam, so the other schedule does the work today."
-          fi
       - name: Ask Apple and post the readings
-        if: steps.when.outputs.run == 'yes'
         env:
           RANKINGS_URL: ${{ secrets.RANKINGS_URL }}
           RANKINGS_TOKEN: ${{ secrets.RANKINGS_TOKEN }}
           ASC_APP_ID: ${{ vars.ASC_APP_ID || '6814166907' }}
+          # By hand means read it now, whatever the day already holds.
+          RANKINGS_FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
         run: node rank.mjs

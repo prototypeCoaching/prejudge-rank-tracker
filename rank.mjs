@@ -72,6 +72,24 @@ export async function readAll({
   return { readings, missed };
 }
 
+/**
+ * What the dashboard already has for a day.
+ *
+ * GitHub starts a scheduled job when it gets round to it. In October 2026 these runs were between five and seven
+ * and a half hours late, every single day, so a guard asking "is it six in the morning in Amsterdam" was never
+ * true and the rank was never read. A run cannot tell by the clock whether it is the day's run. It asks.
+ *
+ * An answer that cannot be got is not a reason to do nothing: posting a day twice is an upsert, so when this
+ * cannot be reached the run goes ahead and reads anyway.
+ */
+export async function already(url, token, day) {
+  const res = await fetch(`${url}?day=${encodeURIComponent(day)}`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return null;
+  return res.json().catch(() => null);
+}
+
 /** Hand them over. The dashboard writes them down; nothing is stored here. */
 export async function post(url, token, body) {
   const res = await fetch(url, {
@@ -97,6 +115,18 @@ export async function main(env = process.env) {
   const pause = Number(env.RANKINGS_PAUSE_MS || 4000);
 
   const day = amsDay();
+  const wanted = terms.length * countries.length;
+  // A day that is already fully written down is left alone. A day that is only partly there is read again, so a
+  // run that Apple cut short gets another go later the same day.
+  if (!/^(1|true|yes)$/i.test(String(env.RANKINGS_FORCE || ''))) {
+    const have = await already(url, token, day).catch(() => null);
+    if (have && have.readings >= wanted) {
+      console.log(`${day} already has ${have.readings} readings (${have.countries.join(', ')}). Apple is not asked again.`);
+      return { day, posted: 0, missed: 0, skipped: true };
+    }
+    if (have && have.readings) console.log(`${day} has ${have.readings} of ${wanted} readings so far. Reading the rest.`);
+  }
+
   const { readings, missed } = await readAll({ appId, terms, countries, pause, log: (line) => console.log(line) });
   if (!readings.length) throw new Error(`Apple answered nothing for any of the ${countries.length * terms.length} questions. ${missed[0] || ''}`);
 
