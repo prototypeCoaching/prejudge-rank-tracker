@@ -31,7 +31,9 @@ permissions:
 jobs:
   read:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Sixty-four questions at four seconds apart, plus Apple taking its time: about eight minutes when nothing
+    # goes wrong, and a retry on a 429 waits longer still.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5

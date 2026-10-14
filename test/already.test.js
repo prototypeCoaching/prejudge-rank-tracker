@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { already, main, TERMS, COUNTRIES } from '../rank.mjs';
+import { already, main, COUNTRIES, questionCount } from '../rank.mjs';
 
 // GitHub starts a scheduled job when it has a runner to spare, not when the cron says. In October 2026 that was
 // five to seven and a half hours late every day, so the old guard ("is it 06:xx in Amsterdam?") was never true
@@ -9,7 +9,7 @@ import { already, main, TERMS, COUNTRIES } from '../rank.mjs';
 const APP = '6814166907';
 const URL_ = 'https://cron.example/rankings';
 const TOKEN = 'not-a-real-token';
-const WANTED = TERMS.length * COUNTRIES.length;
+const WANTED = questionCount();
 
 function world({ have = null, haveStatus = 200 } = {}) {
   const calls = { apple: 0, get: 0, post: 0, posted: null };

@@ -14,8 +14,38 @@
 //   ASC_APP_ID      the app's App Store id, which is public (it is in every App Store link)
 //   RANKINGS_PAUSE_MS, RANKINGS_TERMS, RANKINGS_COUNTRIES  optional, for a run by hand
 
+// The six watched since the beginning, in every country, so the line on the dashboard keeps running.
 export const TERMS = ['bodybuilding posing', 'posing', 'mandatory poses', 'posing practice', 'bodybuilding', 'posing app'];
 export const COUNTRIES = ['nl', 'us', 'gb', 'de'];
+
+/**
+ * Terms worth more than the ones first picked, watched from 14 October 2026, before the keyword field changes in
+ * 1.2.7. These are a guess about what people type, not a measurement: nothing here can see Apple's search volume,
+ * and neither can anything else without App Store Connect's own search terms report or a paid tool. What this can
+ * see is how many apps Apple returns for a term, which says how many others think it is worth competing for, and
+ * where PREJUDGE stands in that list. "mandatory poses" returns one app in Germany; "bodybuilding" returns a
+ * hundred and eighty five. A term with four results is not a term anybody searches.
+ *
+ * Per country, because the language is: a German searches "wettkampfvorbereitung", and NPC is a federation that
+ * means nothing outside the United States.
+ */
+export const EXTRA_TERMS = {
+  us: ['posing timer', 'bodybuilding app', 'contest prep', 'bikini posing', 'mens physique',
+    'physique posing', 'posing coach', 'ifbb', 'npc', 'peak week'],
+  gb: ['posing timer', 'bodybuilding app', 'contest prep', 'bikini posing', 'mens physique',
+    'physique posing', 'posing coach', 'ifbb', 'bodybuilding competition', 'ukbff'],
+  nl: ['posing timer', 'bodybuilding app', 'poseren', 'bodybuilding wedstrijd', 'fitness wedstrijd',
+    'wedstrijd voorbereiding', 'bikini fitness', 'mens physique', 'ifbb', 'contest prep'],
+  de: ['posing timer', 'bodybuilding app', 'posen', 'bodybuilding wettkampf', 'wettkampfvorbereitung',
+    'fitness wettkampf', 'bikini fitness', 'mens physique', 'ifbb', 'posing training'],
+};
+
+/** Everything watched in one country: the six from the beginning, then that country's own. */
+export const termsFor = (country) => [...TERMS, ...(EXTRA_TERMS[String(country).toLowerCase()] || [])];
+
+/** How many questions a full run asks, which is also how it knows a day is finished. */
+export const questionCount = (countries = COUNTRIES, terms = null) =>
+  countries.reduce((n, c) => n + (terms || termsFor(c)).length, 0);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -52,12 +82,13 @@ export async function ask(appId, term, country, { tries = 3, pause = 4000, wait 
 
 /** Every term in every country, slowly. Returns what Apple answered and what it would not answer. */
 export async function readAll({
-  appId, terms = TERMS, countries = COUNTRIES, pause = 4000, wait = sleep, log = () => {},
+  appId, terms = null, countries = COUNTRIES, pause = 4000, wait = sleep, log = () => {},
 } = {}) {
   const readings = [];
   const missed = [];
   for (const country of countries) {
-    for (const term of terms) {
+    // Each country has its own list, because the language is. A term given by hand goes to all of them.
+    for (const term of terms || termsFor(country)) {
       try {
         const { position, results } = await ask(appId, term, country, { pause, wait });
         readings.push({ country, term, position, results });
@@ -110,12 +141,12 @@ export async function main(env = process.env) {
   if (!token) throw new Error('RANKINGS_TOKEN is not set');
   if (!appId) throw new Error('ASC_APP_ID is not set');
 
-  const terms = env.RANKINGS_TERMS ? env.RANKINGS_TERMS.split(',').map((t) => t.trim()).filter(Boolean) : TERMS;
+  const terms = env.RANKINGS_TERMS ? env.RANKINGS_TERMS.split(',').map((t) => t.trim()).filter(Boolean) : null;
   const countries = env.RANKINGS_COUNTRIES ? env.RANKINGS_COUNTRIES.split(',').map((c) => c.trim().toLowerCase()).filter(Boolean) : COUNTRIES;
   const pause = Number(env.RANKINGS_PAUSE_MS || 4000);
 
   const day = amsDay();
-  const wanted = terms.length * countries.length;
+  const wanted = questionCount(countries, terms);
   // A day that is already fully written down is left alone. A day that is only partly there is read again, so a
   // run that Apple cut short gets another go later the same day.
   if (!/^(1|true|yes)$/i.test(String(env.RANKINGS_FORCE || ''))) {
@@ -128,7 +159,7 @@ export async function main(env = process.env) {
   }
 
   const { readings, missed } = await readAll({ appId, terms, countries, pause, log: (line) => console.log(line) });
-  if (!readings.length) throw new Error(`Apple answered nothing for any of the ${countries.length * terms.length} questions. ${missed[0] || ''}`);
+  if (!readings.length) throw new Error(`Apple answered nothing for any of the ${wanted} questions. ${missed[0] || ''}`);
 
   const answer = await post(url, token, { day, readings });
   console.log(`posted ${readings.length} readings for ${day}${missed.length ? `, ${missed.length} questions Apple would not answer` : ''}: ${answer.slice(0, 200)}`);
